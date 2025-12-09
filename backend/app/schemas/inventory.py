@@ -29,8 +29,8 @@ class InventoryCreate(InventoryBase):
     stock_quantity: int = Field(0, ge=0)
     reserved_quantity: int = Field(0, ge=0)
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "sku": "PROD-001",
                 "name": "Premium Wireless Headphones",
@@ -47,6 +47,7 @@ class InventoryCreate(InventoryBase):
                 "is_trackable": True
             }
         }
+    )
 
 
 class InventoryUpdate(BaseModel):
@@ -71,22 +72,9 @@ class InventoryUpdate(BaseModel):
 
 class InventoryResponse(InventoryBase):
     """Schema for inventory responses"""
-    model_config = ConfigDict(from_attributes=True)
-    
-    id: int
-    stock_quantity: int
-    reserved_quantity: int
-    available_quantity: int
-    
-    created_at: datetime
-    updated_at: datetime
-    
-    # Computed properties
-    is_low_stock: bool = False
-    stock_status: str = "in_stock"
-    
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "id": 1,
                 "sku": "PROD-001",
@@ -109,6 +97,19 @@ class InventoryResponse(InventoryBase):
                 "updated_at": "2024-01-01T00:00:00Z"
             }
         }
+    )
+    
+    id: int
+    stock_quantity: int
+    reserved_quantity: int
+    available_quantity: int
+    
+    created_at: datetime
+    updated_at: datetime
+    
+    # Computed properties
+    is_low_stock: bool = False
+    stock_status: str = "in_stock"
 
 
 class InventoryStockAlert(BaseModel):

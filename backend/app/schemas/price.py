@@ -24,8 +24,8 @@ class PriceCreate(PriceBase):
     """Schema for creating prices"""
     inventory_id: int = Field(..., gt=0)
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "inventory_id": 1,
                 "selling_price": 12000.0,
@@ -38,6 +38,7 @@ class PriceCreate(PriceBase):
                 "requires_approval": False
             }
         }
+    )
 
 
 class PriceUpdate(BaseModel):
@@ -58,22 +59,9 @@ class PriceUpdate(BaseModel):
 
 class PriceResponse(PriceBase):
     """Schema for price responses"""
-    model_config = ConfigDict(from_attributes=True)
-    
-    id: int
-    inventory_id: int
-    
-    effective_from: datetime
-    effective_until: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
-    
-    # Computed properties
-    final_price: float = 0.0
-    calculated_margin: float = 0.0
-    
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "id": 1,
                 "inventory_id": 1,
@@ -93,6 +81,19 @@ class PriceResponse(PriceBase):
                 "updated_at": "2024-01-01T00:00:00Z"
             }
         }
+    )
+    
+    id: int
+    inventory_id: int
+    
+    effective_from: datetime
+    effective_until: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+    
+    # Computed properties
+    final_price: float = 0.0
+    calculated_margin: float = 0.0
 
 
 class PriceHistoryResponse(BaseModel):

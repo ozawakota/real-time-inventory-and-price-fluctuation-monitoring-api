@@ -11,9 +11,11 @@ class Settings(BaseSettings):
     # Application
     APP_NAME: str = "Real-Time Inventory Monitoring API"
     DEBUG: bool = False
+    LOG_LEVEL: str = "INFO"
+    ENVIRONMENT: str = "development"
     
     # Database
-    DATABASE_URL: str = "postgresql://postgres:postgres123@localhost:5432/inventory_db"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/inventory_monitoring"
     
     # Redis
     REDIS_URL: str = "redis://localhost:6379"
@@ -38,9 +40,10 @@ class Settings(BaseSettings):
     LOW_STOCK_THRESHOLD: int = 10
     PRICE_CHANGE_THRESHOLD: float = 0.05  # 5% price change threshold
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = {
+        "env_file": ".env",
+        "case_sensitive": True
+    }
 
 
 # Global settings instance
