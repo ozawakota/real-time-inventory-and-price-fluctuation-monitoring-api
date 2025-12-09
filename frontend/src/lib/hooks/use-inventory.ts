@@ -6,8 +6,9 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiClient, type InventoryItem, type InventoryCreate, type InventoryUpdate } from '../api/client';
-import { toast } from 'react-hot-toast';
+import { inventoryApi } from '../api/client';
+import type { InventoryItem, InventoryCreate, InventoryUpdate, PaginatedResponse } from '../api/types';
+import toast from 'react-hot-toast';
 
 // Query keys for cache management
 export const inventoryKeys = {
@@ -17,20 +18,17 @@ export const inventoryKeys = {
     [...inventoryKeys.lists(), filters] as const,
   details: () => [...inventoryKeys.all, 'detail'] as const,
   detail: (id: number) => [...inventoryKeys.details(), id] as const,
-  lowStock: (threshold?: number) => 
-    [...inventoryKeys.all, 'low-stock', threshold] as const,
+  lowStock: () => 
+    [...inventoryKeys.all, 'low-stock'] as const,
 };
 
 /**
  * Get paginated inventory list
  */
 export function useInventoryList(skip = 0, limit = 100) {
-  return useQuery({
+  return useQuery<PaginatedResponse<InventoryItem>>({
     queryKey: inventoryKeys.list({ skip, limit }),
-    queryFn: async () => {
-      const response = await apiClient.getInventory(skip, limit);
-      return response.data;
-    },
+    queryFn: () => inventoryApi.getAll(skip, limit),
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 10 * 60 * 1000,   // 10 minutes
   });
@@ -40,12 +38,9 @@ export function useInventoryList(skip = 0, limit = 100) {
  * Get single inventory item by ID
  */
 export function useInventoryItem(itemId: number) {
-  return useQuery({
+  return useQuery<InventoryItem>({
     queryKey: inventoryKeys.detail(itemId),
-    queryFn: async () => {
-      const response = await apiClient.getInventoryItem(itemId);
-      return response.data;
-    },
+    queryFn: () => inventoryApi.getById(itemId),
     enabled: !!itemId,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
@@ -55,13 +50,10 @@ export function useInventoryItem(itemId: number) {
 /**
  * Get low stock items with alert threshold
  */
-export function useLowStockItems(threshold = 10) {
-  return useQuery({
-    queryKey: inventoryKeys.lowStock(threshold),
-    queryFn: async () => {
-      const response = await apiClient.getLowStockItems(threshold);
-      return response.data;
-    },
+export function useLowStockItems() {
+  return useQuery<InventoryItem[]>({
+    queryKey: inventoryKeys.lowStock(),
+    queryFn: () => inventoryApi.getLowStock(),
     staleTime: 2 * 60 * 1000, // 2 minutes (more frequent updates for alerts)
     gcTime: 5 * 60 * 1000,
     refetchInterval: 5 * 60 * 1000, // Auto-refresh every 5 minutes
@@ -74,11 +66,8 @@ export function useLowStockItems(threshold = 10) {
 export function useCreateInventoryItem() {
   const queryClient = useQueryClient();
 
-  return useMutation({
-    mutationFn: async (data: InventoryCreate) => {
-      const response = await apiClient.createInventoryItem(data);
-      return response.data;
-    },
+  return useMutation<InventoryItem, Error, InventoryCreate>({
+    mutationFn: (data: InventoryCreate) => inventoryApi.create(data),
     onSuccess: (newItem) => {
       // Invalidate and refetch inventory lists
       queryClient.invalidateQueries({ queryKey: inventoryKeys.lists() });
@@ -102,11 +91,8 @@ export function useCreateInventoryItem() {
 export function useUpdateInventoryItem() {
   const queryClient = useQueryClient();
 
-  return useMutation({
-    mutationFn: async ({ itemId, data }: { itemId: number; data: InventoryUpdate }) => {
-      const response = await apiClient.updateInventoryItem(itemId, data);
-      return response.data;
-    },
+  return useMutation<InventoryItem, Error, { itemId: number; data: InventoryUpdate }>({
+    mutationFn: ({ itemId, data }) => inventoryApi.update(itemId, data),
     onMutate: async ({ itemId, data }) => {
       // Cancel outgoing refetches
       await queryClient.cancelQueries({ queryKey: inventoryKeys.detail(itemId) });
@@ -152,11 +138,8 @@ export function useUpdateInventoryItem() {
 export function useDeleteInventoryItem() {
   const queryClient = useQueryClient();
 
-  return useMutation({
-    mutationFn: async (itemId: number) => {
-      const response = await apiClient.deleteInventoryItem(itemId);
-      return response.data;
-    },
+  return useMutation<void, Error, number>({
+    mutationFn: (itemId: number) => inventoryApi.delete(itemId),
     onMutate: async (itemId) => {
       // Get the item name for toast message
       const item = queryClient.getQueryData<InventoryItem>(inventoryKeys.detail(itemId));
@@ -188,12 +171,12 @@ export function useBulkInventoryOperations() {
   const bulkUpdate = useMutation({
     mutationFn: async (operations: Array<{ itemId: number; data: InventoryUpdate }>) => {
       const results = await Promise.allSettled(
-        operations.map(op => apiClient.updateInventoryItem(op.itemId, op.data))
+        operations.map(op => inventoryApi.update(op.itemId, op.data))
       );
       
       const successful = results
         .filter((result): result is PromiseFulfilledResult<any> => result.status === 'fulfilled')
-        .map(result => result.value.data);
+        .map(result => result.value);
       
       const failed = results.filter(result => result.status === 'rejected').length;
       

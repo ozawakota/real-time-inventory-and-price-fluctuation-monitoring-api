@@ -6,10 +6,10 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { wsClient } from '../api/client';
 import { useInventoryRealTimeUpdates } from './use-inventory';
-import { usePriceRealTimeUpdates } from './use-price';
-import { toast } from 'react-hot-toast';
+import { getInventoryWebSocket, getPriceWebSocket } from '../websocket/client';
+import toast from 'react-hot-toast';
+import type { WebSocketMessage } from '../api/types';
 
 interface WebSocketState {
   isConnected: boolean;
@@ -49,58 +49,40 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
   const isManualDisconnect = useRef(false);
+  const inventoryWsRef = useRef(getInventoryWebSocket());
+  const priceWsRef = useRef(getPriceWebSocket());
 
   // Get real-time update handlers
   const { handleInventoryUpdate } = useInventoryRealTimeUpdates();
-  const { handlePriceUpdate } = usePriceRealTimeUpdates();
 
   /**
    * Handle incoming WebSocket messages
    */
-  const handleMessage = useCallback((data: any) => {
+  const handleMessage = useCallback((data: WebSocketMessage) => {
     try {
       // Route messages based on type
       if (data.type?.includes('inventory')) {
         handleInventoryUpdate(data);
-      } else if (data.type?.includes('price')) {
-        handlePriceUpdate(data);
-      } else if (data.type === 'system_notification') {
-        // Handle system-wide notifications
-        toast(data.data?.message || 'システム通知', {
-          icon: '🔔',
-          duration: 5000,
+      } else if (data.type === 'price_change') {
+        // Handle price changes
+        toast.success(`価格変更: ${data.data?.inventory_item?.name}`, {
+          icon: '💰',
+          duration: 4000,
         });
+      } else if (data.type === 'stock_alert') {
+        // Handle stock alerts
+        const alertData = data.data;
+        toast.error(`在庫アラート: ${alertData?.inventory_item?.name} - ${alertData?.alert?.message}`, {
+          icon: '⚠️',
+          duration: 8000,
+        });
+      } else if (data.type === 'connection_status') {
+        console.log('Connection status:', data);
       }
     } catch (error) {
       console.error('Error handling WebSocket message:', error);
     }
-  }, [handleInventoryUpdate, handlePriceUpdate]);
-
-  /**
-   * Handle WebSocket connection errors
-   */
-  const handleConnectionError = useCallback((error: Event) => {
-    setState(prev => ({
-      ...prev,
-      error: '接続エラーが発生しました',
-      isConnecting: false,
-      isConnected: false,
-    }));
-
-    onError?.(error);
-
-    // Attempt reconnection if not manually disconnected
-    if (!isManualDisconnect.current && state.reconnectAttempts < maxReconnectAttempts) {
-      setState(prev => ({
-        ...prev,
-        reconnectAttempts: prev.reconnectAttempts + 1,
-      }));
-
-      reconnectTimeoutRef.current = setTimeout(() => {
-        connect();
-      }, reconnectInterval);
-    }
-  }, [onError, state.reconnectAttempts, maxReconnectAttempts, reconnectInterval]);
+  }, [handleInventoryUpdate]);
 
   /**
    * Connect to WebSocket servers
@@ -119,34 +101,45 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     isManualDisconnect.current = false;
 
     try {
-      // Connect to inventory updates
-      wsClient.connectToInventory(
-        (data) => handleMessage(data),
-        (error) => handleConnectionError(error)
-      );
-
-      // Connect to price updates
-      wsClient.connectToPrice(
-        (data) => handleMessage(data),
-        (error) => handleConnectionError(error)
-      );
-
-      setState(prev => ({
-        ...prev,
-        isConnected: true,
-        isConnecting: false,
-        error: null,
-        reconnectAttempts: 0,
-      }));
-
-      onConnect?.();
-      
-      // Show connection success message (only after reconnect)
-      if (state.reconnectAttempts > 0) {
-        toast.success('リアルタイム接続が復旧しました', {
-          icon: '🔄',
-        });
-      }
+      // Connect to inventory WebSocket
+      inventoryWsRef.current.connect({
+        onMessage: handleMessage,
+        onOpen: () => {
+          setState(prev => ({
+            ...prev,
+            isConnected: true,
+            isConnecting: false,
+            error: null,
+            reconnectAttempts: 0,
+          }));
+          onConnect?.();
+          
+          if (state.reconnectAttempts > 0) {
+            toast.success('リアルタイム接続が復旧しました', {
+              icon: '🔄',
+            });
+          }
+        },
+        onClose: () => {
+          if (!isManualDisconnect.current) {
+            setState(prev => ({
+              ...prev,
+              isConnected: false,
+              isConnecting: false,
+            }));
+          }
+        },
+        onError: (error) => {
+          setState(prev => ({
+            ...prev,
+            error: '接続エラーが発生しました',
+            isConnecting: false,
+            isConnected: false,
+            reconnectAttempts: prev.reconnectAttempts + 1,
+          }));
+          onError?.(error);
+        },
+      });
 
     } catch (error) {
       setState(prev => ({
@@ -155,7 +148,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         error: '接続に失敗しました',
       }));
     }
-  }, [state.isConnected, state.isConnecting, state.reconnectAttempts, handleMessage, handleConnectionError, onConnect]);
+  }, [state.isConnected, state.isConnecting, state.reconnectAttempts, handleMessage, onConnect, onError]);
 
   /**
    * Disconnect from WebSocket servers
@@ -168,7 +161,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       clearTimeout(reconnectTimeoutRef.current);
     }
 
-    wsClient.disconnect();
+    inventoryWsRef.current.disconnect();
+    priceWsRef.current.disconnect();
 
     setState({
       isConnected: false,
