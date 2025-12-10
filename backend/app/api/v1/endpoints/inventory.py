@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
-from app.db.session import get_db
+from app.core.database import get_db
 from app.schemas.inventory import InventoryCreate, InventoryUpdate, InventoryResponse
 from app.services.inventory_service import InventoryService
 
