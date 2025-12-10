@@ -59,7 +59,7 @@ export function DashboardStats({
   
   // 総在庫価値を計算
   const totalValue = inventoryData?.items?.reduce((total, item) => {
-    return total + (item.stock_quantity * item.unit_cost);
+    return total + (item.stock_quantity * item.cost_price);
   }, 0) || 0;
 
   const stats = [

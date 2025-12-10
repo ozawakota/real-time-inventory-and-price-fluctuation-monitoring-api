@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, Package, AlertTriangle, CheckCircle } from 'lucide-react';
 import type { InventoryItem, PaginatedResponse } from '@/lib/api/types';
+import { Pagination } from '@/components/ui/Pagination';
 
 interface InventoryTableProps {
   data: PaginatedResponse<InventoryItem>;
   onRefresh?: () => void;
+  onPageChange?: (page: number) => void;
+  onItemsPerPageChange?: (itemsPerPage: number) => void;
   className?: string;
 }
 
@@ -107,7 +110,13 @@ function StockLevelBar({ current, min, max }: { current: number; min: number; ma
   );
 }
 
-export function InventoryTable({ data, onRefresh, className = '' }: InventoryTableProps) {
+export function InventoryTable({ 
+  data, 
+  onRefresh, 
+  onPageChange, 
+  onItemsPerPageChange,
+  className = '' 
+}: InventoryTableProps) {
   const [sortConfig, setSortConfig] = useState<{
     key: keyof InventoryItem;
     direction: 'asc' | 'desc';
@@ -186,13 +195,13 @@ export function InventoryTable({ data, onRefresh, className = '' }: InventoryTab
               />
               <TableHeader 
                 label="価格" 
-                sortKey="selling_price" 
+                sortKey="cost_price" 
                 currentSort={sortConfig}
                 onSort={handleSort}
               />
               <TableHeader 
-                label="供給者" 
-                sortKey="supplier" 
+                label="詳細情報" 
+                sortKey="category" 
                 currentSort={sortConfig}
                 onSort={handleSort}
               />
@@ -251,19 +260,19 @@ export function InventoryTable({ data, onRefresh, className = '' }: InventoryTab
                 
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm text-gray-900 dark:text-white">
-                    <div className="font-medium">¥{item.selling_price.toLocaleString()}</div>
+                    <div className="font-medium">¥{item.cost_price.toLocaleString()}</div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">
-                      仕入: ¥{item.unit_cost.toLocaleString()}
+                      原価: ¥{item.cost_price.toLocaleString()}
                     </div>
                   </div>
                 </td>
                 
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm text-gray-900 dark:text-white">
-                    {item.supplier}
+                    {item.category || 'カテゴリなし'}
                   </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">
-                    {item.location}
+                    {item.dimensions || 'サイズ不明'}
                   </div>
                 </td>
                 
@@ -276,18 +285,17 @@ export function InventoryTable({ data, onRefresh, className = '' }: InventoryTab
         </table>
       </div>
 
-      {/* ページネーション情報 */}
-      <div className="bg-white dark:bg-gray-800 px-6 py-3 border-t border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-gray-700 dark:text-gray-300">
-            {data.total} 件中 {((data.page - 1) * data.per_page) + 1} - {Math.min(data.page * data.per_page, data.total)} 件を表示
-          </div>
-          
-          <div className="text-sm text-gray-500 dark:text-gray-400">
-            ページ {data.page} / {data.pages}
-          </div>
-        </div>
-      </div>
+      {/* ページネーション */}
+      {onPageChange && onItemsPerPageChange && (
+        <Pagination
+          currentPage={data.page}
+          totalPages={data.pages}
+          totalItems={data.total}
+          itemsPerPage={data.per_page}
+          onPageChange={onPageChange}
+          onItemsPerPageChange={onItemsPerPageChange}
+        />
+      )}
     </div>
   );
 }

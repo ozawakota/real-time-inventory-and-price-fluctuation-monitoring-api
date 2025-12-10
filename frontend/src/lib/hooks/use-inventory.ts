@@ -7,7 +7,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiClient, type InventoryItem, type InventoryCreate, type InventoryUpdate } from '../api/client';
+import { inventoryApi, type InventoryItem, type InventoryCreate, type InventoryUpdate } from '../api/client';
 import { toast } from 'react-hot-toast';
 
 // Query keys for cache management
@@ -29,8 +29,7 @@ export function useInventoryList(skip = 0, limit = 100) {
   return useQuery({
     queryKey: inventoryKeys.list({ skip, limit }),
     queryFn: async () => {
-      const response = await apiClient.getInventory(skip, limit);
-      return response.data;
+      return await inventoryApi.getAll(skip, limit);
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 10 * 60 * 1000,   // 10 minutes
@@ -44,8 +43,7 @@ export function useInventoryItem(itemId: number) {
   return useQuery({
     queryKey: inventoryKeys.detail(itemId),
     queryFn: async () => {
-      const response = await apiClient.getInventoryItem(itemId);
-      return response.data;
+      return await inventoryApi.getById(itemId);
     },
     enabled: !!itemId,
     staleTime: 5 * 60 * 1000,
@@ -60,8 +58,7 @@ export function useLowStockItems(threshold = 10) {
   return useQuery({
     queryKey: inventoryKeys.lowStock(threshold),
     queryFn: async () => {
-      const response = await apiClient.getLowStockItems(threshold);
-      return response.data;
+      return await inventoryApi.getLowStock();
     },
     staleTime: 2 * 60 * 1000, // 2 minutes (more frequent updates for alerts)
     gcTime: 5 * 60 * 1000,
@@ -77,8 +74,7 @@ export function useCreateInventoryItem() {
 
   return useMutation({
     mutationFn: async (data: InventoryCreate) => {
-      const response = await apiClient.createInventoryItem(data);
-      return response.data;
+      return await inventoryApi.create(data);
     },
     onSuccess: (newItem) => {
       // Invalidate and refetch inventory lists
@@ -105,8 +101,7 @@ export function useUpdateInventoryItem() {
 
   return useMutation({
     mutationFn: async ({ itemId, data }: { itemId: number; data: InventoryUpdate }) => {
-      const response = await apiClient.updateInventoryItem(itemId, data);
-      return response.data;
+      return await inventoryApi.update(itemId, data);
     },
     onMutate: async ({ itemId, data }) => {
       // Cancel outgoing refetches
@@ -155,15 +150,14 @@ export function useDeleteInventoryItem() {
 
   return useMutation({
     mutationFn: async (itemId: number) => {
-      const response = await apiClient.deleteInventoryItem(itemId);
-      return response.data;
+      return await inventoryApi.delete(itemId);
     },
     onMutate: async (itemId) => {
       // Get the item name for toast message
       const item = queryClient.getQueryData<InventoryItem>(inventoryKeys.detail(itemId));
       return { itemName: item?.name || 'アイテム' };
     },
-    onSuccess: (data, itemId, context) => {
+    onSuccess: (_, itemId, context) => {
       // Remove from cache
       queryClient.removeQueries({ queryKey: inventoryKeys.detail(itemId) });
       
@@ -189,12 +183,12 @@ export function useBulkInventoryOperations() {
   const bulkUpdate = useMutation({
     mutationFn: async (operations: Array<{ itemId: number; data: InventoryUpdate }>) => {
       const results = await Promise.allSettled(
-        operations.map(op => apiClient.updateInventoryItem(op.itemId, op.data))
+        operations.map(op => inventoryApi.update(op.itemId, op.data))
       );
       
       const successful = results
         .filter((result): result is PromiseFulfilledResult<any> => result.status === 'fulfilled')
-        .map(result => result.value.data);
+        .map(result => result.value);
       
       const failed = results.filter(result => result.status === 'rejected').length;
       

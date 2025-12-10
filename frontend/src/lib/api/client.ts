@@ -43,26 +43,57 @@ apiClient.interceptors.response.use(
   (error) => {
     console.error('API Error:', error);
     
+    // より詳細なエラー情報を作成
+    const errorMessage = {
+      message: 'APIエラーが発生しました',
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      url: error.config?.url,
+    };
+    
     if (error.response?.status === 401) {
       // 認証エラーの場合、トークンを削除してログイン画面にリダイレクト
       if (typeof window !== 'undefined') {
         localStorage.removeItem('token');
         window.location.href = '/login';
       }
+    } else if (error.response?.status === 500) {
+      errorMessage.message = 'サーバー内部エラーが発生しました。しばらく時間をおいてから再試行してください。';
+    } else if (error.response?.status === 404) {
+      errorMessage.message = 'リソースが見つかりませんでした。';
+    } else if (error.code === 'NETWORK_ERROR' || !error.response) {
+      errorMessage.message = 'ネットワークエラーが発生しました。接続を確認してください。';
     }
+    
+    // エラーオブジェクトにカスタムメッセージを追加
+    error.message = errorMessage.message;
+    error.details = errorMessage;
     
     return Promise.reject(error);
   }
 );
 
+
 // 在庫管理 API
 export const inventoryApi = {
   // 在庫一覧取得
   getAll: async (skip = 0, limit = 100) => {
-    const response = await apiClient.get<PaginatedResponse<InventoryItem>>(
+    const response = await apiClient.get<InventoryItem[]>(
       `/inventory/?skip=${skip}&limit=${limit}`
     );
-    return response.data;
+    
+    // 総アイテム数を別途取得（ページネーション計算用）
+    const totalResponse = await apiClient.get<InventoryItem[]>('/inventory/');
+    const total = totalResponse.data.length;
+    
+    return {
+      items: response.data,
+      total,
+      page: Math.floor(skip / limit) + 1,
+      per_page: limit,
+      pages: Math.ceil(total / limit),
+    };
   },
 
   // 在庫詳細取得
@@ -98,7 +129,7 @@ export const inventoryApi = {
 
   // 低在庫アイテム取得
   getLowStock: async () => {
-    const response = await apiClient.get<InventoryItem[]>('/inventory/low-stock/');
+    const response = await apiClient.get<InventoryItem[]>('/inventory/low-stock/alert');
     return response.data;
   },
 };

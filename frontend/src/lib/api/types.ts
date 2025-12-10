@@ -4,22 +4,23 @@ export interface InventoryItem {
   id: number;
   name: string;
   sku: string;
-  category: string;
+  category?: string;
   stock_quantity: number;
   reserved_quantity: number;
   min_stock_level: number;
   max_stock_level: number;
-  unit_cost: number;
-  selling_price: number;
-  supplier: string;
-  location: string;
+  cost_price: number;
+  weight?: number;
+  dimensions?: string;
   description?: string;
   is_active: boolean;
+  is_trackable: boolean;
   created_at: string;
   updated_at: string;
   // 計算プロパティ
-  available_quantity?: number;
-  is_low_stock?: boolean;
+  available_quantity: number;
+  is_low_stock: boolean;
+  stock_status: string;
 }
 
 export interface InventoryCreate {

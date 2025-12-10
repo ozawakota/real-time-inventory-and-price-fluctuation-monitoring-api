@@ -2,6 +2,7 @@
 
 import { useInventoryList, useLowStockItems } from '@/lib/hooks/use-inventory'
 import { useWebSocket } from '@/lib/hooks/use-websocket'
+import { usePagination } from '@/lib/hooks/use-pagination'
 import { InventoryTable } from '@/components/inventory/InventoryTable'
 import { DashboardStats } from '@/components/dashboard/DashboardStats'
 import { LowStockAlert } from '@/components/alerts/LowStockAlert'
@@ -14,13 +15,23 @@ export default function DashboardPage() {
   // WebSocket接続
   const { isConnected, connect, disconnect } = useWebSocket()
 
+  // ページネーション
+  const {
+    page,
+    itemsPerPage,
+    skip,
+    limit,
+    handlePageChange,
+    handleItemsPerPageChange,
+  } = usePagination({ initialItemsPerPage: 25 })
+
   // データ取得
   const { 
     data: inventoryData, 
     isLoading: inventoryLoading, 
     error: inventoryError,
     refetch: refetchInventory 
-  } = useInventoryList(0, 20)
+  } = useInventoryList(skip, limit)
 
   const { 
     data: lowStockItems, 
@@ -98,6 +109,8 @@ export default function DashboardPage() {
               <InventoryTable 
                 data={inventoryData}
                 onRefresh={refetchInventory}
+                onPageChange={handlePageChange}
+                onItemsPerPageChange={handleItemsPerPageChange}
               />
             ) : (
               <div className="text-center py-12 text-gray-500 dark:text-gray-400">
