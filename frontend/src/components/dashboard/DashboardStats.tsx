@@ -1,9 +1,10 @@
 import { Package, AlertTriangle, DollarSign, TrendingUp } from 'lucide-react';
-import type { InventoryItem, PaginatedResponse } from '@/lib/api/types';
+import type { InventoryItem, PaginatedResponse, InventoryStats } from '@/lib/api/types';
 
 interface DashboardStatsProps {
   inventoryData?: PaginatedResponse<InventoryItem>;
   lowStockItems?: InventoryItem[];
+  statsData?: InventoryStats;
   className?: string;
 }
 
@@ -51,16 +52,14 @@ function StatCard({ title, value, icon, description, color, className = '' }: St
 export function DashboardStats({
   inventoryData,
   lowStockItems,
+  statsData,
   className = '',
 }: DashboardStatsProps) {
-  const totalItems = inventoryData?.total || 0;
-  const lowStockCount = lowStockItems?.length || 0;
-  const outOfStockCount = inventoryData?.items?.filter(item => item.stock_quantity <= 0).length || 0;
-  
-  // 総在庫価値を計算
-  const totalValue = inventoryData?.items?.reduce((total, item) => {
-    return total + (item.stock_quantity * item.cost_price);
-  }, 0) || 0;
+  // 統計データが利用可能な場合はそちらを使用、そうでなければフォールバック
+  const totalItems = statsData?.total_items || inventoryData?.total || 0;
+  const outOfStockCount = statsData?.out_of_stock_count || lowStockItems?.filter(item => item.stock_quantity <= 0).length || 0;
+  const lowStockCount = statsData?.low_stock_count || lowStockItems?.filter(item => item.stock_quantity > 0 && item.stock_quantity <= (item.min_stock_level || 0)).length || 0;
+  const totalValue = statsData?.total_value || 0;
 
   const stats = [
     {
@@ -124,21 +123,21 @@ export function DashboardStats({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
           <div className="text-center">
             <div className="text-2xl font-bold text-green-600">
-              {totalItems > 0 ? Math.round(((totalItems - lowStockCount - outOfStockCount) / totalItems) * 100) : 0}%
+              {statsData?.normal_stock_percentage || (totalItems > 0 ? Math.round(((totalItems - lowStockCount - outOfStockCount) / totalItems) * 100) : 0)}%
             </div>
             <div className="text-gray-500 dark:text-gray-400">正常在庫</div>
           </div>
           
           <div className="text-center">
             <div className="text-2xl font-bold text-yellow-600">
-              {totalItems > 0 ? Math.round((lowStockCount / totalItems) * 100) : 0}%
+              {statsData?.low_stock_percentage || (totalItems > 0 ? Math.round((lowStockCount / totalItems) * 100) : 0)}%
             </div>
             <div className="text-gray-500 dark:text-gray-400">低在庫警告</div>
           </div>
           
           <div className="text-center">
             <div className="text-2xl font-bold text-red-600">
-              {totalItems > 0 ? Math.round((outOfStockCount / totalItems) * 100) : 0}%
+              {statsData?.out_of_stock_percentage || (totalItems > 0 ? Math.round((outOfStockCount / totalItems) * 100) : 0)}%
             </div>
             <div className="text-gray-500 dark:text-gray-400">在庫切れ</div>
           </div>

@@ -8,6 +8,7 @@ import type {
   StockAlert,
   PaginatedResponse,
   DashboardStats,
+  InventoryStats,
   APIError,
 } from './types';
 
@@ -129,7 +130,23 @@ export const inventoryApi = {
 
   // 低在庫アイテム取得
   getLowStock: async () => {
-    const response = await apiClient.get<InventoryItem[]>('/inventory/low-stock/alert');
+    try {
+      const response = await apiClient.get<InventoryItem[]>('/inventory/low-stock/alert');
+      return response.data;
+    } catch (error) {
+      // バックエンドエラーの場合、全アイテムから低在庫を抽出
+      console.warn('Low stock API failed, falling back to filtering all items');
+      const allItems = await apiClient.get<InventoryItem[]>('/inventory/');
+      return allItems.data.filter(item => 
+        item.stock_quantity <= 0 || 
+        item.stock_quantity <= (item.min_stock_level || 0)
+      );
+    }
+  },
+
+  // 統計情報取得
+  getStats: async (): Promise<InventoryStats> => {
+    const response = await apiClient.get<InventoryStats>('/inventory/stats');
     return response.data;
   },
 };

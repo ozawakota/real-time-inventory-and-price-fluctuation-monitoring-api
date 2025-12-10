@@ -195,6 +195,62 @@ class InventoryService:
         logger.info("Retrieved low stock items from database", count=len(alerts))
         return alerts
     
+    async def get_low_stock_inventory_items(self, threshold: Optional[int] = None) -> List[Inventory]:
+        """Get inventory items with low stock levels (returns full inventory objects)"""
+        if threshold is None:
+            threshold = settings.LOW_STOCK_THRESHOLD
+        
+        # Query database for items that are out of stock or below minimum level
+        query = (
+            select(Inventory)
+            .where(
+                (Inventory.stock_quantity <= 0) |  # Out of stock
+                (Inventory.stock_quantity <= Inventory.min_stock_level)  # Below minimum level
+            )
+            .where(Inventory.is_active == True)
+            .order_by(Inventory.stock_quantity.asc())
+        )
+        result = await self.db.execute(query)
+        items = result.scalars().all()
+        
+        logger.info("Retrieved low stock inventory items", count=len(items))
+        return items
+    
+    async def get_inventory_stats(self) -> dict:
+        """Get comprehensive inventory statistics"""
+        # 全アイテムを取得
+        query = select(Inventory).where(Inventory.is_active == True)
+        result = await self.db.execute(query)
+        all_items = result.scalars().all()
+        
+        # 統計を計算
+        total_items = len(all_items)
+        out_of_stock_count = len([item for item in all_items if item.stock_quantity <= 0])
+        low_stock_count = len([item for item in all_items if 0 < item.stock_quantity <= item.min_stock_level])
+        
+        # 総在庫価値を計算
+        total_value = sum(item.stock_quantity * item.cost_price for item in all_items)
+        
+        # 在庫状況の割合
+        normal_stock_count = total_items - out_of_stock_count - low_stock_count
+        normal_stock_percentage = (normal_stock_count / total_items * 100) if total_items > 0 else 0
+        low_stock_percentage = (low_stock_count / total_items * 100) if total_items > 0 else 0
+        out_of_stock_percentage = (out_of_stock_count / total_items * 100) if total_items > 0 else 0
+        
+        stats = {
+            "total_items": total_items,
+            "out_of_stock_count": out_of_stock_count,
+            "low_stock_count": low_stock_count,
+            "normal_stock_count": normal_stock_count,
+            "total_value": total_value,
+            "normal_stock_percentage": round(normal_stock_percentage, 1),
+            "low_stock_percentage": round(low_stock_percentage, 1),
+            "out_of_stock_percentage": round(out_of_stock_percentage, 1),
+        }
+        
+        logger.info("Retrieved inventory statistics", stats=stats)
+        return stats
+    
     async def _invalidate_inventory_caches(self, item_id: Optional[int] = None):
         """Invalidate relevant caches"""
         if item_id:

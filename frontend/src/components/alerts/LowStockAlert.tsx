@@ -163,7 +163,7 @@ export function LowStockAlert({ items, onRefresh, className = '' }: LowStockAler
           
           <div>
             <div className="text-lg font-bold text-gray-600">
-              {items.reduce((sum, item) => sum + item.stock_quantity, 0)}
+              {items.reduce((sum, item) => sum + (item.stock_quantity || 0), 0)}
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">
               総在庫数
@@ -172,7 +172,11 @@ export function LowStockAlert({ items, onRefresh, className = '' }: LowStockAler
           
           <div>
             <div className="text-lg font-bold text-gray-600">
-              ¥{items.reduce((sum, item) => sum + (item.stock_quantity * item.cost_price), 0).toLocaleString()}
+              ¥{items.reduce((sum, item) => {
+                const stockQty = item.stock_quantity || 0;
+                const price = item.cost_price || 0;
+                return sum + (stockQty * price);
+              }, 0).toLocaleString()}
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">
               アラート在庫価値

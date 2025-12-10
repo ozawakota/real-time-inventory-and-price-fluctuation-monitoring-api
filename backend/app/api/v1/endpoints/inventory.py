@@ -23,6 +23,15 @@ async def get_all_inventory(
     return await service.get_all_inventory(skip=skip, limit=limit)
 
 
+@router.get("/stats")
+async def get_inventory_stats(
+    db: AsyncSession = Depends(get_db)
+):
+    """Get inventory statistics summary"""
+    service = InventoryService(db)
+    return await service.get_inventory_stats()
+
+
 @router.get("/{item_id}", response_model=InventoryResponse)
 async def get_inventory_item(
     item_id: int,
@@ -73,11 +82,11 @@ async def delete_inventory_item(
     return {"message": "Inventory item deleted successfully"}
 
 
-@router.get("/low-stock/alert")
+@router.get("/low-stock/alert", response_model=List[InventoryResponse])
 async def get_low_stock_items(
     threshold: int = 10,
     db: AsyncSession = Depends(get_db)
 ):
-    """Get items with low stock levels"""
+    """Get items with low stock levels or out of stock"""
     service = InventoryService(db)
-    return await service.get_low_stock_items(threshold)
+    return await service.get_low_stock_inventory_items(threshold)

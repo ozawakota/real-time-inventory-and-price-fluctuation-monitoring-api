@@ -1,6 +1,6 @@
 'use client'
 
-import { useInventoryList, useLowStockItems } from '@/lib/hooks/use-inventory'
+import { useInventoryList, useLowStockItems, useInventoryStats } from '@/lib/hooks/use-inventory'
 import { useWebSocket } from '@/lib/hooks/use-websocket'
 import { usePagination } from '@/lib/hooks/use-pagination'
 import { InventoryTable } from '@/components/inventory/InventoryTable'
@@ -38,6 +38,12 @@ export default function DashboardPage() {
     isLoading: lowStockLoading 
   } = useLowStockItems()
 
+  // 統計データ取得
+  const { 
+    data: statsData, 
+    isLoading: statsLoading 
+  } = useInventoryStats()
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* ヘッダー */}
@@ -58,6 +64,7 @@ export default function DashboardPage() {
           <DashboardStats 
             inventoryData={inventoryData}
             lowStockItems={lowStockItems}
+            statsData={statsData}
           />
         </div>
 

@@ -161,6 +161,18 @@ export interface DashboardStats {
   price_changes_today: number;
 }
 
+// 在庫統計型（新しい統計API用）
+export interface InventoryStats {
+  total_items: number;
+  out_of_stock_count: number;
+  low_stock_count: number;
+  normal_stock_count: number;
+  total_value: number;
+  normal_stock_percentage: number;
+  low_stock_percentage: number;
+  out_of_stock_percentage: number;
+}
+
 // エラー型
 export interface APIError {
   detail: string | { [key: string]: string[] };

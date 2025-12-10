@@ -7,7 +7,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { inventoryApi, type InventoryItem, type InventoryCreate, type InventoryUpdate } from '../api/client';
+import { inventoryApi, type InventoryItem, type InventoryCreate, type InventoryUpdate, type InventoryStats } from '../api/client';
 import { toast } from 'react-hot-toast';
 
 // Query keys for cache management
@@ -20,6 +20,7 @@ export const inventoryKeys = {
   detail: (id: number) => [...inventoryKeys.details(), id] as const,
   lowStock: (threshold?: number) => 
     [...inventoryKeys.all, 'low-stock', threshold] as const,
+  stats: () => [...inventoryKeys.all, 'stats'] as const,
 };
 
 /**
@@ -256,4 +257,19 @@ export function useInventoryRealTimeUpdates() {
   };
 
   return { handleInventoryUpdate };
+}
+
+/**
+ * Get inventory statistics
+ */
+export function useInventoryStats() {
+  return useQuery({
+    queryKey: inventoryKeys.stats(),
+    queryFn: async () => {
+      return await inventoryApi.getStats();
+    },
+    staleTime: 1 * 60 * 1000, // 1 minute
+    gcTime: 5 * 60 * 1000,   // 5 minutes
+    refetchInterval: 2 * 60 * 1000, // Auto-refresh every 2 minutes
+  });
 }

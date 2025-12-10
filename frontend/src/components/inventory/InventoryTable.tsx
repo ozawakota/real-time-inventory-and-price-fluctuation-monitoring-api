@@ -84,7 +84,8 @@ function StatusBadge({ item }: { item: InventoryItem }) {
 }
 
 function StockLevelBar({ current, min, max }: { current: number; min: number; max: number }) {
-  const percentage = Math.min((current / max) * 100, 100);
+  const safeMax = max || 1; // ゼロ除算を防ぐ
+  const percentage = Math.min((current / safeMax) * 100, 100);
   const isLow = current <= min;
   const isEmpty = current <= 0;
 
@@ -243,26 +244,26 @@ export function InventoryTable({
                 
                 <td className="px-6 py-4 whitespace-nowrap">
                   <StockLevelBar 
-                    current={item.stock_quantity}
-                    min={item.min_stock_level}
-                    max={item.max_stock_level}
+                    current={item.stock_quantity || 0}
+                    min={item.min_stock_level || 0}
+                    max={item.max_stock_level || 1}
                   />
                 </td>
                 
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm text-gray-900 dark:text-white">
-                    <div className="font-medium">{item.stock_quantity.toLocaleString()}</div>
+                    <div className="font-medium">{(item.stock_quantity || 0).toLocaleString()}</div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">
-                      最小: {item.min_stock_level} / 最大: {item.max_stock_level}
+                      最小: {item.min_stock_level || 0} / 最大: {item.max_stock_level || 0}
                     </div>
                   </div>
                 </td>
                 
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm text-gray-900 dark:text-white">
-                    <div className="font-medium">¥{item.cost_price.toLocaleString()}</div>
+                    <div className="font-medium">¥{(item.cost_price || 0).toLocaleString()}</div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">
-                      原価: ¥{item.cost_price.toLocaleString()}
+                      原価: ¥{(item.cost_price || 0).toLocaleString()}
                     </div>
                   </div>
                 </td>
