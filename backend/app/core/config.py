@@ -28,8 +28,10 @@ class Settings(BaseSettings):
     # CORS
     ALLOWED_ORIGINS: List[str] = [
         "http://localhost:3000",  # React frontend
+        "http://localhost:3001",  # React frontend (alternate port)
         "http://localhost:8000",  # FastAPI docs
         "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001", 
         "http://127.0.0.1:8000",
     ]
     
