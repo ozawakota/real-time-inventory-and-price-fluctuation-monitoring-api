@@ -2,91 +2,196 @@
 /**
  * Inventory Management Hooks
  * 
- * React Query hooks for inventory operations with type safety from OpenAPI-generated types.
- * Provides caching, optimistic updates, and real-time synchronization.
+ * TanStack Query v5実装による在庫管理フック
+ * - 型安全性のあるAPIクライアントとの連携
+ * - 自動キャッシュ管理とバックグラウンド更新
+ * - 楽観的更新（Optimistic Updates）
+ * - リアルタイム同期とWebSocket連携
+ * - エラーハンドリングとリトライ機能
+ */
+
+/**
+ * TanStack Query キャッシュ戦略について:
+ * 
+ * 1. Query Keys構造 - 階層的キー管理
+ *    - all: ['inventory'] - ルートキー
+ *    - lists: [...all, 'list'] - 一覧系クエリ
+ *    - details: [...all, 'detail'] - 詳細系クエリ
+ *    - lowStock: [...all, 'low-stock'] - 低在庫アラート
+ *    - stats: [...all, 'stats'] - 統計データ
+ * 
+ * 2. Stale Time設定 - データの鮮度管理
+ *    - 一般データ: 5分 (定期的な更新が必要)
+ *    - 低在庫アラート: 2分 (より頻繁な監視)
+ *    - 統計データ: 1分 (リアルタイム性重視)
+ * 
+ * 3. GC Time設定 - メモリ管理
+ *    - 未使用キャッシュの保持時間を制御
+ *    - 10分後に自動削除でメモリ効率化
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi, type InventoryItem, type InventoryCreate, type InventoryUpdate, type InventoryStats } from '../api/client';
 import { toast } from 'react-hot-toast';
 
-// Query keys for cache management
+/**
+ * Query Keys管理 - TanStack Queryのキャッシュキー戦略
+ * 
+ * 階層的なキー構造により効率的なキャッシュ無効化を実現:
+ * - 親キーの無効化で子キーも自動無効化
+ * - フィルタリング条件を含むことで正確なキャッシュ制御
+ * - TypeScript const assertionで型安全性を確保
+ */
 export const inventoryKeys = {
+  // ベースキー - 在庫関連の全クエリのルート
   all: ['inventory'] as const,
+  
+  // 一覧系クエリのベースキー
   lists: () => [...inventoryKeys.all, 'list'] as const,
+  
+  // 具体的な一覧クエリ - ページネーションパラメータを含む
   list: (filters: { skip?: number; limit?: number }) => 
     [...inventoryKeys.lists(), filters] as const,
+  
+  // 詳細系クエリのベースキー
   details: () => [...inventoryKeys.all, 'detail'] as const,
+  
+  // 個別アイテムの詳細クエリ
   detail: (id: number) => [...inventoryKeys.details(), id] as const,
+  
+  // 低在庫アラートクエリ - 閾値パラメータを含む
   lowStock: (threshold?: number) => 
     [...inventoryKeys.all, 'low-stock', threshold] as const,
+  
+  // 統計データクエリ
   stats: () => [...inventoryKeys.all, 'stats'] as const,
 };
 
 /**
- * Get paginated inventory list
+ * ページネーション対応在庫一覧取得フック
+ * 
+ * TanStack Query実装パターン:
+ * 1. queryKey: ページネーションパラメータを含む一意キー
+ * 2. queryFn: 非同期データ取得関数
+ * 3. staleTime: データの鮮度期間（5分間は再取得しない）
+ * 4. gcTime: ガベージコレクション期間（10分間キャッシュ保持）
+ * 
+ * @param skip オフセット位置（デフォルト: 0）
+ * @param limit 取得件数（デフォルト: 100）
+ * @returns 在庫一覧クエリ結果
  */
 export function useInventoryList(skip = 0, limit = 100) {
   return useQuery({
+    // キャッシュキー: ページネーション状態を含む
     queryKey: inventoryKeys.list({ skip, limit }),
+    
+    // データ取得関数: APIクライアント経由でデータ取得
     queryFn: async () => {
       return await inventoryApi.getAll(skip, limit);
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 10 * 60 * 1000,   // 10 minutes
+    
+    // データ鮮度設定: 5分間は自動再取得しない
+    staleTime: 5 * 60 * 1000,
+    
+    // ガベージコレクション: 10分間未使用でキャッシュ削除
+    gcTime: 10 * 60 * 1000,
   });
 }
 
 /**
- * Get single inventory item by ID
+ * 単一在庫アイテム詳細取得フック
+ * 
+ * 条件付きクエリの実装パターン:
+ * - enabled: false の場合クエリを実行しない
+ * - itemId が有効な場合のみデータ取得
+ * 
+ * @param itemId 在庫アイテムID
+ * @returns 在庫詳細クエリ結果
  */
 export function useInventoryItem(itemId: number) {
   return useQuery({
+    // アイテムIDを含む詳細キー
     queryKey: inventoryKeys.detail(itemId),
+    
+    // データ取得関数
     queryFn: async () => {
       return await inventoryApi.getById(itemId);
     },
+    
+    // 条件付きクエリ: itemIdが有効な場合のみ実行
     enabled: !!itemId,
+    
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
   });
 }
 
 /**
- * Get low stock items with alert threshold
+ * 低在庫アイテム取得フック（アラート機能付き）
+ * 
+ * リアルタイム監視パターン:
+ * 1. 短い staleTime (2分) で頻繁な更新
+ * 2. refetchInterval で自動定期更新
+ * 3. アラート重要度に応じたキャッシュ戦略
+ * 
+ * @param threshold アラート閾値（使用予定、現在は固定値）
+ * @returns 低在庫アイテムクエリ結果
  */
 export function useLowStockItems(threshold = 10) {
   return useQuery({
+    // 閾値を含むキー（将来の機能拡張対応）
     queryKey: inventoryKeys.lowStock(threshold),
+    
     queryFn: async () => {
       return await inventoryApi.getLowStock();
     },
-    staleTime: 2 * 60 * 1000, // 2 minutes (more frequent updates for alerts)
+    
+    // アラート用短縮鮮度期間: 2分間
+    staleTime: 2 * 60 * 1000,
+    
+    // 短縮キャッシュ保持期間: 5分間
     gcTime: 5 * 60 * 1000,
-    refetchInterval: 5 * 60 * 1000, // Auto-refresh every 5 minutes
+    
+    // 自動定期更新: 5分間隔でバックグラウンド更新
+    refetchInterval: 5 * 60 * 1000,
   });
 }
 
 /**
- * Create new inventory item
+ * 在庫アイテム作成ミューテーション
+ * 
+ * TanStack Query Mutation パターン:
+ * 1. mutationFn: 非同期変更処理
+ * 2. onSuccess: 成功時のキャッシュ更新戦略
+ * 3. onError: エラーハンドリング
+ * 4. キャッシュ無効化: 関連するクエリキーを無効化
+ * 5. 楽観的更新: 新規作成されたアイテムを即座にキャッシュに追加
+ * 
+ * @returns 作成ミューテーション
  */
 export function useCreateInventoryItem() {
   const queryClient = useQueryClient();
 
   return useMutation({
+    // 変更処理関数
     mutationFn: async (data: InventoryCreate) => {
       return await inventoryApi.create(data);
     },
+    
+    // 成功時のキャッシュ戦略
     onSuccess: (newItem) => {
-      // Invalidate and refetch inventory lists
+      // 関連クエリの無効化: 一覧と低在庫アラートを再取得
       queryClient.invalidateQueries({ queryKey: inventoryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: inventoryKeys.lowStock() });
       
-      // Add the new item to the cache
+      // 楽観的キャッシュ更新: 新規アイテムを詳細キャッシュに追加
       queryClient.setQueryData(inventoryKeys.detail(newItem.id), newItem);
       
+      // ユーザーフィードバック
       toast.success(`アイテム「${newItem.name}」を作成しました`);
     },
+    
+    // エラーハンドリング
     onError: (error: any) => {
       console.error('Failed to create inventory item:', error);
       toast.error('アイテムの作成に失敗しました');
@@ -95,7 +200,20 @@ export function useCreateInventoryItem() {
 }
 
 /**
- * Update existing inventory item
+ * 在庫アイテム更新ミューテーション（楽観的更新実装）
+ * 
+ * 楽観的更新（Optimistic Updates）の完全実装:
+ * 1. onMutate: 更新前に楽観的更新実行
+ * 2. onError: エラー時にロールバック
+ * 3. onSuccess: 成功時に関連キャッシュ無効化
+ * 4. onSettled: 最終的にデータを再同期
+ * 
+ * メリット:
+ * - 即座にUIが更新されるため体感速度が向上
+ * - ネットワーク遅延の影響を最小化
+ * - エラー時の適切なロールバック
+ * 
+ * @returns 更新ミューテーション
  */
 export function useUpdateInventoryItem() {
   const queryClient = useQueryClient();
@@ -104,14 +222,16 @@ export function useUpdateInventoryItem() {
     mutationFn: async ({ itemId, data }: { itemId: number; data: InventoryUpdate }) => {
       return await inventoryApi.update(itemId, data);
     },
+    
+    // 楽観的更新フェーズ: API実行前にUIを更新
     onMutate: async ({ itemId, data }) => {
-      // Cancel outgoing refetches
+      // 進行中のクエリをキャンセル（競合状態を防止）
       await queryClient.cancelQueries({ queryKey: inventoryKeys.detail(itemId) });
 
-      // Snapshot the previous value
+      // 現在の値をスナップショット（ロールバック用）
       const previousItem = queryClient.getQueryData<InventoryItem>(inventoryKeys.detail(itemId));
 
-      // Optimistically update to the new value
+      // 楽観的更新: 新しい値でキャッシュを即座に更新
       if (previousItem) {
         queryClient.setQueryData(inventoryKeys.detail(itemId), {
           ...previousItem,
@@ -119,25 +239,32 @@ export function useUpdateInventoryItem() {
         });
       }
 
+      // ロールバック用コンテキストを返す
       return { previousItem, itemId };
     },
+    
+    // エラー時ロールバック処理
     onError: (error, variables, context) => {
-      // Rollback optimistic update on error
+      // 楽観的更新をロールバック
       if (context?.previousItem) {
         queryClient.setQueryData(inventoryKeys.detail(context.itemId), context.previousItem);
       }
       console.error('Failed to update inventory item:', error);
       toast.error('アイテムの更新に失敗しました');
     },
+    
+    // 成功時処理
     onSuccess: (updatedItem) => {
-      // Invalidate related queries
+      // 関連クエリを無効化して最新データを取得
       queryClient.invalidateQueries({ queryKey: inventoryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: inventoryKeys.lowStock() });
       
       toast.success(`アイテム「${updatedItem.name}」を更新しました`);
     },
+    
+    // 最終処理（成功・失敗問わず実行）
     onSettled: (data, error, variables) => {
-      // Always refetch after error or success
+      // 詳細データを再同期（サーバーと確実に同期）
       queryClient.invalidateQueries({ queryKey: inventoryKeys.detail(variables.itemId) });
     },
   });
@@ -215,43 +342,60 @@ export function useBulkInventoryOperations() {
 }
 
 /**
- * Real-time inventory updates hook
+ * リアルタイム在庫更新フック
+ * 
+ * WebSocketとTanStack Queryの統合パターン:
+ * 1. WebSocketメッセージを受信してキャッシュを更新
+ * 2. アクション別キャッシュ操作戦略
+ * 3. リアルタイム通知機能
+ * 4. エラー時の安全な処理
+ * 
+ * キャッシュ更新戦略:
+ * - created/updated: 詳細キャッシュ更新 + 一覧無効化
+ * - deleted: 詳細キャッシュ削除 + 一覧無効化
+ * 
+ * @returns リアルタイム更新ハンドラー
  */
 export function useInventoryRealTimeUpdates() {
   const queryClient = useQueryClient();
 
   const handleInventoryUpdate = (data: any) => {
     try {
+      // WebSocketメッセージ形式の検証
       if (data.type === 'inventory_update' && data.data) {
         const { action, item } = data.data;
         
         switch (action) {
           case 'created':
           case 'updated':
-            // Update cache with new data
+            // 詳細キャッシュを新しいデータで更新
             queryClient.setQueryData(inventoryKeys.detail(item.id), item);
-            // Invalidate list queries to trigger refetch
+            
+            // 一覧系クエリを無効化してバックグラウンド再取得
             queryClient.invalidateQueries({ queryKey: inventoryKeys.lists() });
             queryClient.invalidateQueries({ queryKey: inventoryKeys.lowStock() });
             break;
             
           case 'deleted':
-            // Remove from cache
+            // 削除されたアイテムのキャッシュを完全除去
             queryClient.removeQueries({ queryKey: inventoryKeys.detail(item.id) });
+            
+            // 一覧を更新して削除を反映
             queryClient.invalidateQueries({ queryKey: inventoryKeys.lists() });
             queryClient.invalidateQueries({ queryKey: inventoryKeys.lowStock() });
             break;
         }
         
-        // Show notification for real-time updates
+        // リアルタイム低在庫アラート表示
         if (action === 'updated' && item.is_low_stock) {
           toast.error(`⚠️ 在庫不足: ${item.name} (残り${item.available_quantity}個)`, {
             duration: 10000,
-            id: `low-stock-${item.id}`, // Prevent duplicate toasts
+            id: `low-stock-${item.id}`, // 重複通知防止
           });
         }
       }
     } catch (error) {
+      // WebSocketエラーはUIを壊さないよう安全に処理
       console.error('Error handling real-time inventory update:', error);
     }
   };
@@ -260,16 +404,32 @@ export function useInventoryRealTimeUpdates() {
 }
 
 /**
- * Get inventory statistics
+ * 在庫統計データ取得フック
+ * 
+ * ダッシュボード用高頻度更新パターン:
+ * 1. 短い staleTime (1分) でリアルタイム性を重視
+ * 2. refetchInterval で自動定期更新
+ * 3. 統計データの一貫性確保
+ * 
+ * 用途: ダッシュボードサマリー、KPI表示
+ * 
+ * @returns 統計データクエリ結果
  */
 export function useInventoryStats() {
   return useQuery({
     queryKey: inventoryKeys.stats(),
+    
     queryFn: async () => {
       return await inventoryApi.getStats();
     },
-    staleTime: 1 * 60 * 1000, // 1 minute
-    gcTime: 5 * 60 * 1000,   // 5 minutes
-    refetchInterval: 2 * 60 * 1000, // Auto-refresh every 2 minutes
+    
+    // 統計データ用短縮鮮度期間: 1分間
+    staleTime: 1 * 60 * 1000,
+    
+    // 統計キャッシュ保持期間: 5分間
+    gcTime: 5 * 60 * 1000,
+    
+    // ダッシュボード用定期更新: 2分間隔
+    refetchInterval: 2 * 60 * 1000,
   });
 }
