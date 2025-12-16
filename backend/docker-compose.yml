@@ -3,6 +3,7 @@ version: '3.8'
 services:
   postgres:
     image: postgres:15
+    container_name: Price-Monitoring-API-postgres-backend
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -20,6 +21,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    container_name: Price-Monitoring-API-redis-backend
     ports:
       - "6379:6379"
     volumes:
@@ -33,6 +35,7 @@ services:
 
   app:
     build: .
+    container_name: Price-Monitoring-API-app-backend
     ports:
       - "8000:8000"
     environment:
