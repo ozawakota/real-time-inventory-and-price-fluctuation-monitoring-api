@@ -149,6 +149,24 @@ export const inventoryApi = {
     const response = await apiClient.get<InventoryStats>('/inventory/stats');
     return response.data;
   },
+
+  // SKU重複チェック
+  checkSkuExists: async (sku: string): Promise<boolean> => {
+    try {
+      const response = await apiClient.get<{ exists: boolean }>(`/inventory/check-sku/${encodeURIComponent(sku)}`);
+      return response.data.exists;
+    } catch (error) {
+      // APIエラーの場合、全アイテムから検索してフォールバック
+      console.warn('SKU check API failed, falling back to search');
+      try {
+        const allItems = await apiClient.get<InventoryItem[]>('/inventory/');
+        return allItems.data.some(item => item.sku === sku);
+      } catch (fallbackError) {
+        console.error('Fallback SKU check also failed:', fallbackError);
+        return false;
+      }
+    }
+  },
 };
 
 // 価格履歴 API

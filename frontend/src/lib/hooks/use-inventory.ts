@@ -90,11 +90,19 @@ export function useInventoryList(skip = 0, limit = 100) {
       return await inventoryApi.getAll(skip, limit);
     },
     
-    // データ鮮度設定: 5分間は自動再取得しない
-    staleTime: 5 * 60 * 1000,
+    // データ鮮度設定: 30秒間は自動再取得しない（短縮）
+    staleTime: 30 * 1000,
     
-    // ガベージコレクション: 10分間未使用でキャッシュ削除
-    gcTime: 10 * 60 * 1000,
+    // ガベージコレクション: 5分間未使用でキャッシュ削除
+    gcTime: 5 * 60 * 1000,
+    
+    // 初回データ取得を確実にする設定
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
+    
+    // リトライ設定: 最大2回まで、短い間隔で
+    retry: 2,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
   });
 }
 
@@ -146,14 +154,22 @@ export function useLowStockItems(threshold = 10) {
       return await inventoryApi.getLowStock();
     },
     
-    // アラート用短縮鮮度期間: 2分間
-    staleTime: 2 * 60 * 1000,
+    // アラート用短縮鮮度期間: 30秒間
+    staleTime: 30 * 1000,
     
-    // 短縮キャッシュ保持期間: 5分間
-    gcTime: 5 * 60 * 1000,
+    // 短縮キャッシュ保持期間: 2分間
+    gcTime: 2 * 60 * 1000,
     
-    // 自動定期更新: 5分間隔でバックグラウンド更新
-    refetchInterval: 5 * 60 * 1000,
+    // 初回データ取得を確実にする
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
+    
+    // 自動定期更新: 1分間隔でバックグラウンド更新
+    refetchInterval: 1 * 60 * 1000,
+    
+    // リトライ設定
+    retry: 2,
+    retryDelay: 1000,
   });
 }
 
@@ -423,13 +439,72 @@ export function useInventoryStats() {
       return await inventoryApi.getStats();
     },
     
-    // 統計データ用短縮鮮度期間: 1分間
-    staleTime: 1 * 60 * 1000,
+    // 統計データ用短縮鮮度期間: 30秒間
+    staleTime: 30 * 1000,
     
-    // 統計キャッシュ保持期間: 5分間
-    gcTime: 5 * 60 * 1000,
+    // 統計キャッシュ保持期間: 2分間
+    gcTime: 2 * 60 * 1000,
     
-    // ダッシュボード用定期更新: 2分間隔
-    refetchInterval: 2 * 60 * 1000,
+    // 初回データ取得を確実にする
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
+    
+    // ダッシュボード用定期更新: 1分間隔
+    refetchInterval: 1 * 60 * 1000,
+    
+    // リトライ設定
+    retry: 2,
+    retryDelay: 1000,
+  });
+}
+
+/**
+ * SKU重複チェック用フック
+ * 
+ * リアルタイム重複検証の実装パターン:
+ * - 入力値変更時の即座な検証
+ * - デバウンス処理で無駄なAPI呼び出しを削減
+ * - 検証状態の管理とUI feedback
+ * 
+ * @param sku チェック対象のSKU文字列
+ * @returns SKU重複チェック結果
+ */
+export function useSkuValidation(sku: string) {
+  return useQuery({
+    // SKU固有のキャッシュキー
+    queryKey: ['inventory', 'sku-check', sku],
+    
+    // SKU重複チェック実行
+    queryFn: async () => {
+      if (!sku || sku.length < 2) {
+        return { exists: false, valid: false, message: 'SKUを2文字以上入力してください' };
+      }
+      
+      const exists = await inventoryApi.checkSkuExists(sku);
+      
+      return {
+        exists,
+        valid: !exists,
+        message: exists 
+          ? `SKU "${sku}" は既に使用されています`
+          : `SKU "${sku}" は使用可能です`
+      };
+    },
+    
+    // 条件付き実行: SKUが入力されている場合のみ
+    enabled: !!sku && sku.length >= 2,
+    
+    // キャッシュ設定: 短時間だけキャッシュ（リアルタイム性重視）
+    staleTime: 30 * 1000, // 30秒
+    gcTime: 2 * 60 * 1000, // 2分
+    
+    // リトライ設定: ネットワークエラー時のみ
+    retry: (failureCount, error: any) => {
+      // 400番台エラー（重複確認など）はリトライしない
+      if (error?.response?.status >= 400 && error?.response?.status < 500) {
+        return false;
+      }
+      return failureCount < 2;
+    },
   });
 }
