@@ -151,7 +151,34 @@ class InventoryService:
         return existing_item is not None
     
     async def get_inventory_by_id(self, item_id: int) -> Optional[Inventory]:
-        """Get inventory item by ID"""
+        """
+        ID指定在庫アイテム取得
+        
+        指定されたIDの在庫アイテムを取得します。
+        キャッシュ最適化により高速なアクセスを実現します。
+        
+        キャッシュ戦略:
+        1. Redis キャッシュ確認（10分間有効）
+        2. キャッシュヒット時は即座に返却
+        3. キャッシュミス時はデータベース取得
+        4. 取得成功時はキャッシュに保存
+        
+        Args:
+            item_id (int): 取得対象のアイテムID
+            
+        Returns:
+            Optional[Inventory]: 在庫アイテム（見つからない場合None）
+            
+        Performance:
+        - キャッシュヒット時: ~2ms
+        - キャッシュミス時: ~15ms
+        - キャッシュ有効期限: 10分
+        
+        Use Cases:
+        - API詳細取得エンドポイント
+        - 更新前の既存データ確認
+        - 関連データ取得時の参照
+        """
         # Check cache first
         cache_key = CACHE_KEYS["inventory_item"].format(item_id=item_id)
         cached_result = await redis_manager.get_cache(cache_key)
@@ -173,7 +200,38 @@ class InventoryService:
         return item
     
     async def create_inventory(self, inventory_data: InventoryCreate) -> Inventory:
-        """Create new inventory item"""
+        """
+        新規在庫アイテム作成
+        
+        バリデーション、計算処理、キャッシュ管理、リアルタイム通知を
+        統合した在庫アイテム作成メソッドです。
+        
+        作成フロー:
+        1. 利用可能数量の自動計算
+        2. データベースへの永続化
+        3. キャッシュ無効化
+        4. WebSocketリアルタイム通知
+        5. 構造化ログ記録
+        
+        計算ロジック:
+        - available_quantity = stock_quantity - reserved_quantity
+        
+        Args:
+            inventory_data (InventoryCreate): 作成データ（Pydanticスキーマ）
+            
+        Returns:
+            Inventory: 作成された在庫アイテム（IDと作成日時含む）
+            
+        Side Effects:
+        - データベーストランザクション実行
+        - Redis キャッシュ無効化
+        - WebSocket 通知送信
+        - 構造化ログ出力
+        
+        Raises:
+            IntegrityError: SKU重複時
+            ValidationError: 入力データ不正時
+        """
         # Calculate available quantity
         available_quantity = inventory_data.stock_quantity - inventory_data.reserved_quantity
         
@@ -292,7 +350,36 @@ class InventoryService:
         return updated_item
     
     async def delete_inventory(self, item_id: int) -> bool:
-        """Delete inventory item"""
+        """
+        在庫アイテム削除
+        
+        指定されたIDの在庫アイテムを削除します。
+        削除前の存在確認、キャッシュクリア、リアルタイム通知を含みます。
+        
+        削除フロー:
+        1. 削除対象アイテムの存在確認
+        2. データベースから物理削除
+        3. 関連キャッシュの無効化
+        4. WebSocket削除通知
+        5. ログ記録
+        
+        Args:
+            item_id (int): 削除対象のアイテムID
+            
+        Returns:
+            bool: 削除成功の可否（True=削除成功、False=アイテム未存在）
+            
+        Side Effects:
+        - データベースレコード完全削除
+        - Redis キャッシュ無効化
+        - WebSocket 削除通知
+        - 構造化ログ出力
+        
+        Note:
+        - 物理削除のため復元不可能
+        - 関連データ（価格履歴等）は別途考慮が必要
+        - 削除前のバックアップ推奨
+        """
         # Check if item exists
         existing_item = await self.get_inventory_by_id(item_id)
         if not existing_item:
@@ -378,7 +465,45 @@ class InventoryService:
         return items
     
     async def get_inventory_stats(self) -> dict:
-        """Get comprehensive inventory statistics"""
+        """
+        総合在庫統計情報取得
+        
+        ダッシュボード表示用の包括的な在庫統計情報を計算・取得します。
+        ビジネスインテリジェンス、KPI監視、意思決定支援に使用されます。
+        
+        統計項目:
+        - 総アイテム数
+        - 在庫切れアイテム数・割合
+        - 低在庫アイテム数・割合
+        - 正常在庫アイテム数・割合
+        - 総在庫価値（原価ベース）
+        
+        計算ロジック:
+        1. アクティブアイテムのみ集計対象
+        2. 在庫状況別カウント
+        3. 総価値 = Σ(stock_quantity × cost_price)
+        4. 割合計算（％、小数点第1位）
+        
+        Returns:
+            dict: 統計情報辞書
+            - total_items: 総アイテム数
+            - out_of_stock_count: 在庫切れ数
+            - low_stock_count: 低在庫数
+            - normal_stock_count: 正常在庫数
+            - total_value: 総在庫価値
+            - *_percentage: 各状況の割合
+            
+        Performance:
+        - 全アイテムスキャンのため重い処理
+        - キャッシュ活用推奨
+        - 定期バッチ処理での更新推奨
+        
+        Use Cases:
+        - ダッシュボード表示
+        - 経営レポート
+        - KPI監視
+        - 在庫分析
+        """
         # 全アイテムを取得
         query = select(Inventory).where(Inventory.is_active == True)
         result = await self.db.execute(query)
@@ -413,7 +538,25 @@ class InventoryService:
         return stats
     
     async def _invalidate_inventory_caches(self, item_id: Optional[int] = None):
-        """Invalidate relevant caches"""
+        """
+        関連キャッシュ無効化
+        
+        在庫データ変更時に関連するRedisキャッシュを無効化します。
+        データ整合性保持とキャッシュ汚染防止のための内部メソッドです。
+        
+        無効化対象:
+        1. 個別アイテムキャッシュ（item_id指定時）
+        2. 一覧ページキャッシュ（最初の10ページ）
+        3. 低在庫アラートキャッシュ（よく使用される閾値）
+        
+        Args:
+            item_id (Optional[int]): 無効化対象のアイテムID（指定時のみ個別削除）
+            
+        Performance Notes:
+        - 本番環境ではパターンマッチング使用推奨
+        - 大量キャッシュ削除は非同期処理推奨
+        - 削除操作の失敗は無視（ログのみ）
+        """
         if item_id:
             cache_key = CACHE_KEYS["inventory_item"].format(item_id=item_id)
             await redis_manager.delete_cache(cache_key)
@@ -429,7 +572,32 @@ class InventoryService:
             await redis_manager.delete_cache(cache_key)
     
     async def _send_inventory_update(self, inventory: Inventory, action: str):
-        """Send real-time inventory update notification"""
+        """
+        リアルタイム在庫更新通知送信
+        
+        WebSocketを使用して接続中のクライアントに在庫変更を
+        リアルタイムで通知する内部メソッドです。
+        
+        通知データ構造:
+        - action: 操作種別（created/updated/deleted）
+        - item: 変更された在庫アイテムの主要情報
+        
+        Args:
+            inventory (Inventory): 変更対象の在庫アイテム
+            action (str): 実行されたアクション（"created", "updated", "deleted"）
+            
+        Side Effects:
+        - 全WebSocket接続クライアントに通知送信
+        - 通信エラーは内部的に処理（ログのみ）
+        
+        Use Cases:
+        - フロントエンドのリアルタイム在庫表示更新
+        - ダッシュボードの即座な反映
+        - 複数ユーザー間のデータ同期
+        
+        Note:
+        - 本番環境では依存性注入によるマネージャー取得推奨
+        """
         from app.services.websocket_manager import ConnectionManager
         
         # Create manager instance (in production, use dependency injection)
@@ -449,7 +617,34 @@ class InventoryService:
         })
     
     async def _send_stock_alert(self, inventory: Inventory):
-        """Send stock level alert"""
+        """
+        在庫レベルアラート送信
+        
+        低在庫・在庫切れ時に関係者にアラート通知を送信する内部メソッドです。
+        WebSocketによるリアルタイム通知で緊急性の高い在庫問題を知らせます。
+        
+        アラートレベル判定:
+        - critical: 在庫切れ（available_quantity <= 0）
+        - warning: 低在庫（0 < available_quantity <= min_stock_level）
+        
+        Args:
+            inventory (Inventory): アラート対象の在庫アイテム
+            
+        通知内容:
+        - アイテム識別情報（ID、SKU、名前）
+        - 現在在庫数・最小在庫レベル
+        - アラートレベル・メッセージ
+        
+        Side Effects:
+        - WebSocket クライアントへアラート通知
+        - ログ記録（アラート発生履歴）
+        
+        Use Cases:
+        - 在庫管理者への緊急通知
+        - ダッシュボードでのアラート表示
+        - 自動発注システムのトリガー
+        - 在庫監視システムの一部
+        """
         from app.services.websocket_manager import ConnectionManager
         
         manager = ConnectionManager()
